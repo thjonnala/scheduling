@@ -24,12 +24,7 @@ export default function Navbar() {
 
   return (
     <nav className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <NavLink to="/" className="flex items-center gap-2" aria-label="Thiru's Vedic Astrology home">
-          <span aria-hidden="true" className="text-2xl">🪔</span>
-          <span className="font-display text-xl text-gray-900">Thiru's Vedic Astrology</span>
-        </NavLink>
-
+      <div className="mx-auto flex max-w-6xl items-center justify-end px-4 py-3 md:justify-center">
         {/* Desktop links */}
         <div className="hidden items-center gap-1 md:flex">
           {links.map((l) => (
