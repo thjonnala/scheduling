@@ -3,9 +3,13 @@ import SectionHeading from "../components/SectionHeading";
 import {
   SLOT_TIMES,
   describeSlot,
+  formatDdMmmYyyy,
+  formatHhMmAmPm,
   formatSlotWithIst,
   getBookedSlots,
   isWeekend,
+  parseDdMmmYyyy,
+  parseHhMmAmPm,
   parseLocalDate,
   saveBooking,
   upcomingWeekendDates,
@@ -25,7 +29,10 @@ interface FormState {
   mobile: string;
   email: string;
   note: string;
+  /** ISO YYYY-MM-DD once the typed/picked date parses; "" otherwise */
   appointmentDate: string;
+  /** What the visitor sees in the date box, e.g. "03-Oct-2026" */
+  appointmentDateText: string;
   slot: string;
 }
 
@@ -40,6 +47,7 @@ const emptyForm: FormState = {
   email: "",
   note: "",
   appointmentDate: "",
+  appointmentDateText: "",
   slot: "",
 };
 
@@ -64,13 +72,16 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function formatLongDate(dateStr: string): string {
-  return parseLocalDate(dateStr).toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+/** "03-Oct-2026 (Saturday)" */
+function formatDateWithWeekday(dateStr: string): string {
+  const weekday = parseLocalDate(dateStr).toLocaleDateString("en-US", { weekday: "long" });
+  return `${formatDdMmmYyyy(dateStr)} (${weekday})`;
+}
+
+/** "Sat, 03-Oct-2026" — compact form for the quick-pick chips */
+function formatChipDate(dateStr: string): string {
+  const weekday = parseLocalDate(dateStr).toLocaleDateString("en-US", { weekday: "short" });
+  return `${weekday}, ${formatDdMmmYyyy(dateStr)}`;
 }
 
 /**
@@ -99,9 +110,8 @@ export default function Appointment() {
     setErrors((e) => ({ ...e, [field]: undefined }));
   };
 
-  const handleDateChange = (value: string) => {
-    setForm((f) => ({ ...f, appointmentDate: value, slot: "" }));
-    if (value && !isWeekend(value)) {
+  const flagWeekday = (iso: string) => {
+    if (iso && !isWeekend(iso)) {
       setErrors((e) => ({
         ...e,
         appointmentDate: "Appointments are available only on Saturdays and Sundays.",
@@ -111,12 +121,35 @@ export default function Appointment() {
     }
   };
 
+  /** Quick-pick chip: a known-good ISO date. */
+  const handleDateChange = (iso: string) => {
+    setForm((f) => ({
+      ...f,
+      appointmentDate: iso,
+      appointmentDateText: formatDdMmmYyyy(iso),
+      slot: "",
+    }));
+    flagWeekday(iso);
+  };
+
+  /** Typed date: keep the raw text, and the ISO form only once it parses. */
+  const handleDateTextChange = (text: string) => {
+    const iso = parseDdMmmYyyy(text) ?? "";
+    setForm((f) => ({ ...f, appointmentDate: iso, appointmentDateText: text, slot: "" }));
+    flagWeekday(iso);
+  };
+
   const validate = (): boolean => {
     const next: Partial<Record<keyof FormState, string>> = {};
     if (!form.fullName.trim()) next.fullName = "Please enter your full name.";
-    if (!form.dateOfBirth) next.dateOfBirth = "Please enter your date of birth.";
-    else if (form.dateOfBirth > todayStr()) next.dateOfBirth = "Date of birth must be in the past.";
-    if (!form.timeOfBirth) next.timeOfBirth = "Please enter your time of birth.";
+    const dob = parseDdMmmYyyy(form.dateOfBirth);
+    if (!form.dateOfBirth.trim()) next.dateOfBirth = "Please enter your date of birth.";
+    else if (!dob) next.dateOfBirth = "Please enter your date of birth as dd-mmm-yyyy, e.g. 15-May-1990.";
+    else if (dob > todayStr()) next.dateOfBirth = "Date of birth must be in the past.";
+    else if (dob < "1900-01-01") next.dateOfBirth = "Please check the year of birth.";
+    if (!form.timeOfBirth.trim()) next.timeOfBirth = "Please enter your time of birth.";
+    else if (!parseHhMmAmPm(form.timeOfBirth))
+      next.timeOfBirth = "Please enter your time of birth as hh:mm AM/PM, e.g. 08:30 AM.";
     if (!form.placeOfBirth.trim()) next.placeOfBirth = "Please enter your place of birth.";
     const mobile = normalizeMobile(form.mobile);
     if (!mobile) next.mobile = "Please enter your mobile number.";
@@ -126,7 +159,10 @@ export default function Appointment() {
       next.mobile = "Please enter a valid mobile number with country code (e.g. +91 98765 43210).";
     const email = form.email.trim();
     if (email && !isValidEmail(email)) next.email = "Please enter a valid email address.";
-    if (!form.appointmentDate) next.appointmentDate = "Please choose an appointment date.";
+    if (!form.appointmentDate)
+      next.appointmentDate = form.appointmentDateText.trim()
+        ? "Please enter the date as dd-mmm-yyyy, e.g. 03-Oct-2026."
+        : "Please choose an appointment date.";
     else if (!isWeekend(form.appointmentDate))
       next.appointmentDate = "Appointments are available only on Saturdays and Sundays.";
     else if (form.appointmentDate < todayStr())
@@ -143,8 +179,9 @@ export default function Appointment() {
     if (!validate()) return;
     const booking = saveBooking({
       fullName: form.fullName.trim(),
-      dateOfBirth: form.dateOfBirth,
-      timeOfBirth: form.timeOfBirth,
+      // validate() has already confirmed this parses
+      dateOfBirth: parseDdMmmYyyy(form.dateOfBirth)!,
+      timeOfBirth: parseHhMmAmPm(form.timeOfBirth)!,
       placeOfBirth: form.placeOfBirth.trim(),
       mobile: normalizeMobile(form.mobile),
       email: form.email.trim() || undefined,
@@ -181,7 +218,7 @@ export default function Appointment() {
             Your consultation is scheduled for:
           </p>
           <p className="mt-4 font-display text-2xl text-gray-900">
-            {formatLongDate(confirmed.appointmentDate)}
+            {formatDateWithWeekday(confirmed.appointmentDate)}
           </p>
           <p className="mt-1 text-xl text-gray-700">
             {formatSlotWithIst(confirmed.appointmentDate, confirmed.slot)} — 30 minutes
@@ -193,11 +230,11 @@ export default function Appointment() {
           <dl className="mt-6 grid grid-cols-1 gap-3 border-t border-gray-200 pt-5 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-gray-500">Date of birth</dt>
-              <dd className="text-gray-700">{formatLongDate(confirmed.dateOfBirth)}</dd>
+              <dd className="text-gray-700">{formatDdMmmYyyy(confirmed.dateOfBirth)}</dd>
             </div>
             <div>
               <dt className="text-gray-500">Time of birth</dt>
-              <dd className="text-gray-700">{confirmed.timeOfBirth}</dd>
+              <dd className="text-gray-700">{formatHhMmAmPm(confirmed.timeOfBirth)}</dd>
             </div>
             <div className="sm:col-span-2">
               <dt className="text-gray-500">Place of birth</dt>
@@ -309,17 +346,28 @@ export default function Appointment() {
                 </label>
                 <input
                   id="dateOfBirth"
-                  type="date"
-                  max={todayStr()}
+                  type="text"
+                  autoComplete="off"
+                  maxLength={20}
                   value={form.dateOfBirth}
                   onChange={(e) => set("dateOfBirth", e.target.value)}
+                  // Tidy "5-may-1990" to "05-May-1990" once the visitor leaves the field
+                  onBlur={() => {
+                    const iso = parseDdMmmYyyy(form.dateOfBirth);
+                    if (iso) set("dateOfBirth", formatDdMmmYyyy(iso));
+                  }}
+                  placeholder="dd-mmm-yyyy, e.g. 15-May-1990"
                   aria-invalid={!!errors.dateOfBirth}
-                  aria-describedby={errors.dateOfBirth ? "dateOfBirth-error" : undefined}
+                  aria-describedby={errors.dateOfBirth ? "dateOfBirth-error" : "dateOfBirth-hint"}
                   className={inputClass(!!errors.dateOfBirth)}
                 />
-                {errors.dateOfBirth && (
+                {errors.dateOfBirth ? (
                   <p id="dateOfBirth-error" className="mt-1 text-sm text-rose-600" role="alert">
                     {errors.dateOfBirth}
+                  </p>
+                ) : (
+                  <p id="dateOfBirth-hint" className="mt-1 text-xs text-gray-500">
+                    Format: dd-mmm-yyyy (e.g. 15-May-1990).
                   </p>
                 )}
               </div>
@@ -330,16 +378,28 @@ export default function Appointment() {
                 </label>
                 <input
                   id="timeOfBirth"
-                  type="time"
+                  type="text"
+                  autoComplete="off"
+                  maxLength={10}
                   value={form.timeOfBirth}
                   onChange={(e) => set("timeOfBirth", e.target.value)}
+                  // Tidy "8:30am" to "08:30 AM" once the visitor leaves the field
+                  onBlur={() => {
+                    const hhmm = parseHhMmAmPm(form.timeOfBirth);
+                    if (hhmm) set("timeOfBirth", formatHhMmAmPm(hhmm));
+                  }}
+                  placeholder="hh:mm AM/PM, e.g. 08:30 AM"
                   aria-invalid={!!errors.timeOfBirth}
-                  aria-describedby={errors.timeOfBirth ? "timeOfBirth-error" : undefined}
+                  aria-describedby={errors.timeOfBirth ? "timeOfBirth-error" : "timeOfBirth-hint"}
                   className={inputClass(!!errors.timeOfBirth)}
                 />
-                {errors.timeOfBirth && (
+                {errors.timeOfBirth ? (
                   <p id="timeOfBirth-error" className="mt-1 text-sm text-rose-600" role="alert">
                     {errors.timeOfBirth}
+                  </p>
+                ) : (
+                  <p id="timeOfBirth-hint" className="mt-1 text-xs text-gray-500">
+                    Format: hh:mm AM/PM (e.g. 08:30 AM).
                   </p>
                 )}
               </div>
@@ -443,7 +503,7 @@ export default function Appointment() {
             maxLength={NOTE_MAX_LENGTH}
             value={form.note}
             onChange={(e) => set("note", e.target.value)}
-            placeholder="e.g. I'm considering an onsite opportunity next year and also want to know about my marriage prospects and timing."
+            placeholder="e.g. Can you provide a forecast on my love life, marriage compatibility, children, and my timeline for finding a job with onsite opportunities?"
             aria-describedby="note-hint"
             className={`${inputClass(false)} resize-y`}
           />
@@ -462,10 +522,17 @@ export default function Appointment() {
             </label>
             <input
               id="appointmentDate"
-              type="date"
-              min={todayStr()}
-              value={form.appointmentDate}
-              onChange={(e) => handleDateChange(e.target.value)}
+              type="text"
+              autoComplete="off"
+              maxLength={20}
+              value={form.appointmentDateText}
+              onChange={(e) => handleDateTextChange(e.target.value)}
+              onBlur={() => {
+                if (form.appointmentDate) {
+                  setForm((f) => ({ ...f, appointmentDateText: formatDdMmmYyyy(f.appointmentDate) }));
+                }
+              }}
+              placeholder="dd-mmm-yyyy, e.g. 03-Oct-2026 — or tap a date below"
               aria-invalid={!!errors.appointmentDate}
               aria-describedby={errors.appointmentDate ? "appointmentDate-error" : undefined}
               className={inputClass(!!errors.appointmentDate)}
@@ -491,11 +558,7 @@ export default function Appointment() {
                       : "border border-gray-300 text-gray-600 hover:border-gray-400"
                   }`}
                 >
-                  {parseLocalDate(d).toLocaleDateString(undefined, {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  {formatChipDate(d)}
                 </button>
               ))}
             </div>
@@ -506,7 +569,7 @@ export default function Appointment() {
             <div className="mt-6">
               <p className="mb-2 text-sm text-gray-600">
                 Available 30-minute slots for{" "}
-                <span className="text-gray-900">{formatLongDate(form.appointmentDate)}</span>{" "}
+                <span className="text-gray-900">{formatDateWithWeekday(form.appointmentDate)}</span>{" "}
                 (US Central) — IST equivalent in brackets:
               </p>
               <div

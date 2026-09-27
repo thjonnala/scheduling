@@ -9,7 +9,13 @@
  * If the relay fails, the UI offers a prefilled mailto: link as a fallback
  * (see buildMailtoLink).
  */
-import { formatSlotWithIst, type Booking } from "./bookings";
+import {
+  formatDdMmmYyyy,
+  formatHhMmAmPm,
+  formatSlotWithIst,
+  formatTimestampWithIst,
+  type Booking,
+} from "./bookings";
 
 export const BOOKING_EMAIL_TO = "thiru.jon@gmail.com";
 
@@ -32,13 +38,13 @@ export async function sendBookingEmail(booking: Booking): Promise<void> {
       "Full name": booking.fullName,
       Mobile: booking.mobile,
       Email: booking.email ?? "(not provided)",
-      "Appointment date": `${booking.appointmentDate} (US Central)`,
+      "Appointment date": `${formatDdMmmYyyy(booking.appointmentDate)} (US Central)`,
       "Appointment slot": `${formatSlotWithIst(booking.appointmentDate, booking.slot)} — 30 minutes`,
-      "Date of birth": booking.dateOfBirth,
-      "Time of birth": booking.timeOfBirth,
+      "Date of birth": formatDdMmmYyyy(booking.dateOfBirth),
+      "Time of birth": formatHhMmAmPm(booking.timeOfBirth),
       "Place of birth": booking.placeOfBirth,
       "Note to astrologer": booking.note ?? "(none)",
-      "Booked at": booking.createdAt,
+      "Booked at": formatTimestampWithIst(booking.createdAt),
     }),
   });
 
@@ -58,12 +64,13 @@ export function buildMailtoLink(booking: Booking): string {
     `Full name: ${booking.fullName}`,
     `Mobile: ${booking.mobile}`,
     `Email: ${booking.email ?? "(not provided)"}`,
-    `Appointment date: ${booking.appointmentDate} (US Central)`,
+    `Appointment date: ${formatDdMmmYyyy(booking.appointmentDate)} (US Central)`,
     `Appointment slot: ${formatSlotWithIst(booking.appointmentDate, booking.slot)} — 30 minutes`,
-    `Date of birth: ${booking.dateOfBirth}`,
-    `Time of birth: ${booking.timeOfBirth}`,
+    `Date of birth: ${formatDdMmmYyyy(booking.dateOfBirth)}`,
+    `Time of birth: ${formatHhMmAmPm(booking.timeOfBirth)}`,
     `Place of birth: ${booking.placeOfBirth}`,
     `Note to astrologer: ${booking.note ?? "(none)"}`,
+    `Booked at: ${formatTimestampWithIst(booking.createdAt)}`,
   ].join("\n");
   return `mailto:${BOOKING_EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

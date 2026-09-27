@@ -105,7 +105,7 @@ export interface SlotTimes {
   central: string;
   /** e.g. "9:30 PM IST" */
   ist: string;
-  /** Set only when the IST calendar date differs from the Central date, e.g. "Sun, Sep 28" */
+  /** Set only when the IST calendar date differs from the Central date, e.g. "Sun, 28-Sep-2026" */
   istDate?: string;
 }
 
@@ -122,25 +122,110 @@ export function describeSlot(dateStr: string, slot: string): SlotTimes {
     istDate:
       istDay === dateStr
         ? undefined
-        : at.toLocaleDateString("en-US", {
-            timeZone: IST_TIME_ZONE,
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          }),
+        : `${at.toLocaleDateString("en-US", { timeZone: IST_TIME_ZONE, weekday: "short" })}, ${formatDdMmmYyyy(istDay)}`,
   };
 }
 
-/** One-line slot label: "8:00 PM CDT (6:30 AM IST, Sun, Sep 28)". */
+/** One-line slot label: "8:00 PM CDT (6:30 AM IST, Sun, 28-Sep-2026)". */
 export function formatSlotWithIst(dateStr: string, slot: string): string {
   const { central, ist, istDate } = describeSlot(dateStr, slot);
   return `${central} (${ist}${istDate ? `, ${istDate}` : ""})`;
+}
+
+/**
+ * Render an ISO timestamp as "27-Sep-2026 10:23 AM CDT (08:53 PM IST)" —
+ * used for the "Booked at" line in the notification email.
+ */
+export function formatTimestampWithIst(iso: string): string {
+  const at = new Date(iso);
+  const stamp = (timeZone: string) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }).formatToParts(at);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return `${get("day")}-${get("month")}-${get("year")} ${get("hour")}:${get("minute")} ${get("dayPeriod")}`;
+  };
+  return `${stamp(APPOINTMENT_TIME_ZONE)} ${centralZoneAbbrev(at)} (${stamp(IST_TIME_ZONE)} IST)`;
 }
 
 /** Parse "YYYY-MM-DD" as a local date (avoids UTC off-by-one issues). */
 export function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d);
+}
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** Format "YYYY-MM-DD" as "15-May-1990". */
+export function formatDdMmmYyyy(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return `${String(d).padStart(2, "0")}-${MONTH_NAMES[m - 1].slice(0, 3)}-${y}`;
+}
+
+/** Format a 24h "HH:MM" as "08:30 AM" / "12:05 PM". */
+export function formatHhMmAmPm(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(hour12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/**
+ * Parse a typed "hh:mm AM/PM" time (e.g. "08:30 AM", "8:30am") into 24h
+ * "HH:MM". Only this shape is accepted: 1–2 digit hour (1–12), colon,
+ * 2-digit minute, optional space, AM or PM in any case. Returns null otherwise.
+ */
+export function parseHhMmAmPm(raw: string): string | null {
+  const match = raw.trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp])[Mm]$/);
+  if (!match) return null;
+  const hour12 = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const pm = match[3].toLowerCase() === "p";
+  const hour24 = (hour12 % 12) + (pm ? 12 : 0);
+  return `${String(hour24).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/**
+ * Parse a typed "dd-mmm-yyyy" date (e.g. "15-May-1990") into "YYYY-MM-DD".
+ * Only this shape is accepted: 1–2 digit day, hyphen, 3-letter English month
+ * (any case), hyphen, 4-digit year. Returns null when the text doesn't match
+ * or isn't a real calendar date (e.g. 31-Feb-1990).
+ */
+export function parseDdMmmYyyy(raw: string): string | null {
+  const match = raw.trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if (!match) return null;
+  const typed = match[2].toLowerCase();
+  const idx = MONTH_NAMES.findIndex((name) => name.slice(0, 3).toLowerCase() === typed);
+  if (idx < 0) return null;
+  const d = Number(match[1]);
+  const m = idx + 1;
+  const y = Number(match[3]);
+  // new Date() silently rolls 31-Feb over to 3-Mar — reject anything that moved
+  const probe = new Date(y, m - 1, d);
+  if (probe.getFullYear() !== y || probe.getMonth() !== m - 1 || probe.getDate() !== d) {
+    return null;
+  }
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /** Appointments are available only on Saturdays and Sundays. */
