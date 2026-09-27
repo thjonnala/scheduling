@@ -4,3 +4,6 @@ dist-ssr
 *.local
 .DS_Store
 *.tsbuildinfo
+
+# Local ADO backlog tooling (not part of the website)
+ado/
