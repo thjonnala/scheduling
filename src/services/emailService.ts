@@ -9,7 +9,7 @@
  * If the relay fails, the UI offers a prefilled mailto: link as a fallback
  * (see buildMailtoLink).
  */
-import { formatSlot, type Booking } from "./bookings";
+import { formatSlotWithIst, type Booking } from "./bookings";
 
 export const BOOKING_EMAIL_TO = "thiru.jon@gmail.com";
 
@@ -27,12 +27,17 @@ export async function sendBookingEmail(booking: Booking): Promise<void> {
       _subject: `New appointment booking — ${booking.fullName}`,
       _template: "table",
       _captcha: "false",
+      // Let the astrologer reply straight to the visitor when they gave an email
+      ...(booking.email ? { _replyto: booking.email } : {}),
       "Full name": booking.fullName,
-      "Appointment date": booking.appointmentDate,
-      "Appointment slot": `${formatSlot(booking.slot)} (30 minutes)`,
+      Mobile: booking.mobile,
+      Email: booking.email ?? "(not provided)",
+      "Appointment date": `${booking.appointmentDate} (US Central)`,
+      "Appointment slot": `${formatSlotWithIst(booking.appointmentDate, booking.slot)} — 30 minutes`,
       "Date of birth": booking.dateOfBirth,
       "Time of birth": booking.timeOfBirth,
       "Place of birth": booking.placeOfBirth,
+      "Note to astrologer": booking.note ?? "(none)",
       "Booked at": booking.createdAt,
     }),
   });
@@ -51,11 +56,14 @@ export function buildMailtoLink(booking: Booking): string {
   const subject = `New appointment booking — ${booking.fullName}`;
   const body = [
     `Full name: ${booking.fullName}`,
-    `Appointment date: ${booking.appointmentDate}`,
-    `Appointment slot: ${formatSlot(booking.slot)} (30 minutes)`,
+    `Mobile: ${booking.mobile}`,
+    `Email: ${booking.email ?? "(not provided)"}`,
+    `Appointment date: ${booking.appointmentDate} (US Central)`,
+    `Appointment slot: ${formatSlotWithIst(booking.appointmentDate, booking.slot)} — 30 minutes`,
     `Date of birth: ${booking.dateOfBirth}`,
     `Time of birth: ${booking.timeOfBirth}`,
     `Place of birth: ${booking.placeOfBirth}`,
+    `Note to astrologer: ${booking.note ?? "(none)"}`,
   ].join("\n");
   return `mailto:${BOOKING_EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

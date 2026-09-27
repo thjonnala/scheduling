@@ -2,7 +2,8 @@ import { useMemo, useState, type FormEvent } from "react";
 import SectionHeading from "../components/SectionHeading";
 import {
   SLOT_TIMES,
-  formatSlot,
+  describeSlot,
+  formatSlotWithIst,
   getBookedSlots,
   isWeekend,
   parseLocalDate,
@@ -21,15 +22,23 @@ interface FormState {
   dateOfBirth: string;
   timeOfBirth: string;
   placeOfBirth: string;
+  mobile: string;
+  email: string;
+  note: string;
   appointmentDate: string;
   slot: string;
 }
+
+const NOTE_MAX_LENGTH = 1000;
 
 const emptyForm: FormState = {
   fullName: "",
   dateOfBirth: "",
   timeOfBirth: "",
   placeOfBirth: "",
+  mobile: "",
+  email: "",
+  note: "",
   appointmentDate: "",
   slot: "",
 };
@@ -39,6 +48,20 @@ function todayStr(): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(
     t.getDate()
   ).padStart(2, "0")}`;
+}
+
+/** Strip spaces, dashes, dots and parentheses so "+91 98765-43210" → "+919876543210". */
+function normalizeMobile(raw: string): string {
+  return raw.replace(/[\s().-]/g, "");
+}
+
+/** E.164: leading "+", then 7–15 digits with a non-zero first digit. */
+function isValidMobile(normalized: string): boolean {
+  return /^\+[1-9]\d{6,14}$/.test(normalized);
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function formatLongDate(dateStr: string): string {
@@ -51,7 +74,7 @@ function formatLongDate(dateStr: string): string {
 }
 
 /**
- * Weekend-only appointment booking. Slots: 11:00–13:00 and 18:00–20:00 in
+ * Weekend-only appointment booking. Slots: 11:00–13:00 and 20:00–22:00 in
  * 30-minute windows. Bookings persist to localStorage (demo only — no backend).
  */
 export default function Appointment() {
@@ -95,6 +118,14 @@ export default function Appointment() {
     else if (form.dateOfBirth > todayStr()) next.dateOfBirth = "Date of birth must be in the past.";
     if (!form.timeOfBirth) next.timeOfBirth = "Please enter your time of birth.";
     if (!form.placeOfBirth.trim()) next.placeOfBirth = "Please enter your place of birth.";
+    const mobile = normalizeMobile(form.mobile);
+    if (!mobile) next.mobile = "Please enter your mobile number.";
+    else if (!mobile.startsWith("+"))
+      next.mobile = "Please include your country code, starting with + (e.g. +91 98765 43210).";
+    else if (!isValidMobile(mobile))
+      next.mobile = "Please enter a valid mobile number with country code (e.g. +91 98765 43210).";
+    const email = form.email.trim();
+    if (email && !isValidEmail(email)) next.email = "Please enter a valid email address.";
     if (!form.appointmentDate) next.appointmentDate = "Please choose an appointment date.";
     else if (!isWeekend(form.appointmentDate))
       next.appointmentDate = "Appointments are available only on Saturdays and Sundays.";
@@ -115,6 +146,9 @@ export default function Appointment() {
       dateOfBirth: form.dateOfBirth,
       timeOfBirth: form.timeOfBirth,
       placeOfBirth: form.placeOfBirth.trim(),
+      mobile: normalizeMobile(form.mobile),
+      email: form.email.trim() || undefined,
+      note: form.note.trim() || undefined,
       appointmentDate: form.appointmentDate,
       slot: form.slot,
     });
@@ -149,7 +183,12 @@ export default function Appointment() {
           <p className="mt-4 font-display text-2xl text-gray-900">
             {formatLongDate(confirmed.appointmentDate)}
           </p>
-          <p className="mt-1 text-xl text-gray-700">{formatSlot(confirmed.slot)} (30 minutes)</p>
+          <p className="mt-1 text-xl text-gray-700">
+            {formatSlotWithIst(confirmed.appointmentDate, confirmed.slot)} — 30 minutes
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Date and time above are in US Central; the IST equivalent is shown in brackets.
+          </p>
 
           <dl className="mt-6 grid grid-cols-1 gap-3 border-t border-gray-200 pt-5 text-sm sm:grid-cols-2">
             <div>
@@ -164,6 +203,20 @@ export default function Appointment() {
               <dt className="text-gray-500">Place of birth</dt>
               <dd className="text-gray-700">{confirmed.placeOfBirth}</dd>
             </div>
+            <div>
+              <dt className="text-gray-500">Mobile</dt>
+              <dd className="text-gray-700">{confirmed.mobile}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Email</dt>
+              <dd className="text-gray-700">{confirmed.email ?? "Not provided"}</dd>
+            </div>
+            {confirmed.note && (
+              <div className="sm:col-span-2">
+                <dt className="text-gray-500">Note to astrologer</dt>
+                <dd className="whitespace-pre-line text-gray-700">{confirmed.note}</dd>
+              </div>
+            )}
           </dl>
 
           {/* Email relay status */}
@@ -213,7 +266,7 @@ export default function Appointment() {
     <div className="mx-auto max-w-2xl px-4 py-12">
       <SectionHeading
         title="Schedule an Appointment"
-        subtitle="Consultations are held on weekends only — Saturday and Sunday — between 11:00 AM–1:00 PM and 6:00 PM–8:00 PM, in 30-minute slots."
+        subtitle="Consultations are held on weekends only — Saturday and Sunday — between 11:00 AM–1:00 PM and 8:00 PM–10:00 PM US Central time (CST/CDT), in 30-minute slots. The matching IST time is shown in brackets."
       />
 
       <p className="mb-6 rounded-lg border border-gray-300 bg-gray-50 p-3 text-center text-sm text-gray-600">
@@ -315,13 +368,97 @@ export default function Appointment() {
           </div>
         </fieldset>
 
+        {/* Contact details */}
+        <fieldset className="rounded-2xl border border-gray-200 bg-gray-50 p-5 sm:p-6">
+          <legend className="px-2 font-display text-lg text-gray-900">Your Contact Details</legend>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="mobile" className="mb-1 block text-sm text-gray-600">
+                Mobile number (with country code) <span className="text-rose-600">*</span>
+              </label>
+              <input
+                id="mobile"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={form.mobile}
+                onChange={(e) => set("mobile", e.target.value)}
+                placeholder="+91 98765 43210"
+                aria-invalid={!!errors.mobile}
+                aria-describedby={errors.mobile ? "mobile-error" : "mobile-hint"}
+                className={inputClass(!!errors.mobile)}
+              />
+              {errors.mobile ? (
+                <p id="mobile-error" className="mt-1 text-sm text-rose-600" role="alert">
+                  {errors.mobile}
+                </p>
+              ) : (
+                <p id="mobile-hint" className="mt-1 text-xs text-gray-500">
+                  Start with your country code, e.g. +91 (India), +1 (USA/Canada), +44 (UK).
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="email" className="mb-1 block text-sm text-gray-600">
+                Email ID <span className="text-gray-400">(optional)</span>
+              </label>
+              <input
+                id="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={form.email}
+                onChange={(e) => set("email", e.target.value)}
+                placeholder="you@example.com"
+                aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? "email-error" : undefined}
+                className={inputClass(!!errors.email)}
+              />
+              {errors.email && (
+                <p id="email-error" className="mt-1 text-sm text-rose-600" role="alert">
+                  {errors.email}
+                </p>
+              )}
+            </div>
+          </div>
+        </fieldset>
+
+        {/* Note to astrologer */}
+        <fieldset className="rounded-2xl border border-gray-200 bg-gray-50 p-5 sm:p-6">
+          <legend className="px-2 font-display text-lg text-gray-900">Note to Astrologer</legend>
+
+          <label htmlFor="note" className="mb-1 block text-sm text-gray-600">
+            What would you like to know? <span className="text-gray-400">(optional)</span>
+          </label>
+          <p id="note-hint" className="mb-2 text-xs text-gray-500">
+            Describe what you'd like the consultation to focus on — for example: career, marriage,
+            love life, married life, kids, financial problems, buying property, about your partner,
+            health, onsite opportunities, etc. The more specific, the better Thiru can prepare.
+          </p>
+          <textarea
+            id="note"
+            rows={4}
+            maxLength={NOTE_MAX_LENGTH}
+            value={form.note}
+            onChange={(e) => set("note", e.target.value)}
+            placeholder="e.g. I'm considering an onsite opportunity next year and also want to know about my marriage prospects and timing."
+            aria-describedby="note-hint"
+            className={`${inputClass(false)} resize-y`}
+          />
+          <p className="mt-1 text-right text-xs text-gray-400" aria-live="polite">
+            {form.note.length}/{NOTE_MAX_LENGTH}
+          </p>
+        </fieldset>
+
         {/* Date & slot */}
         <fieldset className="rounded-2xl border border-gray-200 bg-gray-50 p-5 sm:p-6">
           <legend className="px-2 font-display text-lg text-gray-900">Pick a Weekend Date &amp; Slot</legend>
 
           <div>
             <label htmlFor="appointmentDate" className="mb-1 block text-sm text-gray-600">
-              Appointment date (Sat / Sun only) <span className="text-rose-600">*</span>
+              Appointment date (weekend only, US Central) <span className="text-rose-600">*</span>
             </label>
             <input
               id="appointmentDate"
@@ -369,7 +506,8 @@ export default function Appointment() {
             <div className="mt-6">
               <p className="mb-2 text-sm text-gray-600">
                 Available 30-minute slots for{" "}
-                <span className="text-gray-900">{formatLongDate(form.appointmentDate)}</span>:
+                <span className="text-gray-900">{formatLongDate(form.appointmentDate)}</span>{" "}
+                (US Central) — IST equivalent in brackets:
               </p>
               <div
                 className="grid grid-cols-2 gap-3 sm:grid-cols-4"
@@ -379,6 +517,7 @@ export default function Appointment() {
                 {SLOT_TIMES.map((slot) => {
                   const booked = bookedSlots.includes(slot);
                   const selected = form.slot === slot;
+                  const times = describeSlot(form.appointmentDate, slot);
                   return (
                     <button
                       key={slot}
@@ -395,7 +534,15 @@ export default function Appointment() {
                             : "border border-gray-300 text-gray-700 hover:border-gray-400"
                       }`}
                     >
-                      {formatSlot(slot)}
+                      <span className="block">{times.central}</span>
+                      <span
+                        className={`block text-xs font-normal ${
+                          selected ? "text-gray-300" : booked ? "text-gray-400" : "text-gray-500"
+                        }`}
+                      >
+                        ({times.ist}
+                        {times.istDate && `, ${times.istDate}`})
+                      </span>
                       {booked && <span className="sr-only"> (already booked)</span>}
                     </button>
                   );
@@ -407,7 +554,8 @@ export default function Appointment() {
                 </p>
               )}
               <p className="mt-3 text-xs text-gray-400">
-                Greyed-out slots are already booked for this date.
+                Greyed-out slots are already booked for this date. Evening Central slots fall on
+                the next calendar day in IST — the IST date is shown where it differs.
               </p>
             </div>
           )}
